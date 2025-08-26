@@ -1,6 +1,6 @@
 import os
 if all(tok in key for tok in query.split()):
-results.append((cls, title, url))
+    results.append((cls, title, url))
 
 
 if not results:
