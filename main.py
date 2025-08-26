@@ -1,71 +1,108 @@
-import os
-if all(tok in key for tok in query.split()):
-    results.append((cls, title, url))
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 
+# 🔹 BotFather से लिया गया Token डालो
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 
-if not results:
-await update.message.reply_text("No matches in catalog. Try different keywords or update catalog.json.")
-return
+# 🔹 Channel username (without @)
+CHANNEL_USERNAME = "bye_artist"
 
+# Logging setup
+logging.basicConfig(level=logging.INFO)
 
-# Show first 25 as buttons
-rows = []
-for i, (cls, title, url) in enumerate(results[:25], start=1):
-rows.append([InlineKeyboardButton(f"{i}. {cls} – {title}", callback_data=f"book|{url}|{title}")])
-rows.append([InlineKeyboardButton("🔙 Back", callback_data="back|root")])
-await update.message.reply_text("Search results:", reply_markup=InlineKeyboardMarkup(rows))
+# Example NCERT Links (आप चाहो तो Class 1–12 तक डाल सकते हो)
+ncert_books = {
+    "Class 6": {
+        "Maths": "https://ncert.nic.in/textbook/pdf/femh1dd.zip",
+        "Science": "https://ncert.nic.in/textbook/pdf/fesc1dd.zip",
+    },
+    "Class 10": {
+        "Maths": "https://ncert.nic.in/textbook/pdf/femh1dd.zip",
+        "Science": "https://ncert.nic.in/textbook/pdf/fesc1dd.zip",
+    }
+}
 
+# ✅ Channel Check Function
+def check_subscription(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    chat_member = context.bot.get_chat_member(f"@{CHANNEL_USERNAME}", user_id)
+    return chat_member.status in ["member", "administrator", "creator"]
 
-async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-query = update.callback_query
-if not query:
-return
-try:
-await query.answer()
-except Exception:
-pass
+# ✅ Start Command
+def start(update: Update, context: CallbackContext):
+    user = update.effective_user
 
+    if not check_subscription(update, context):
+        keyboard = [[InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/bye_artist")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(
+            f"Hello {user.first_name}!\n\n👉 Please join our channel to use this bot.",
+            reply_markup=reply_markup
+        )
+        return
 
-data = query.data or ""
-action, *rest = data.split("|", 2)
+    # Send Animation (GIF/Sticker/Video Note)
+    update.message.reply_animation(
+        animation="https://files.catbox.moe/lhbsqt.mp4",  # कोई भी gif link डाल सकते हो
+        caption="📚 Welcome to NCERT Books Bot!\nSelect a class to get books."
+    )
 
+    keyboard = [[InlineKeyboardButton(cls, callback_data=cls)] for cls in ncert_books.keys()]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text("📖 Choose Class:", reply_markup=reply_markup)
 
-if action == "refresh":
-try:
-load_catalog()
-await query.edit_message_text("Catalog refreshed. Use /start again or pick an option.")
-except Exception as e:
-await query.edit_message_text(f"Refresh failed: {e}")
-return
+# ✅ Books Command
+def books(update: Update, context: CallbackContext):
+    keyboard = [[InlineKeyboardButton(cls, callback_data=cls)] for cls in ncert_books.keys()]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text("📖 Choose Class:", reply_markup=reply_markup)
 
+# ✅ Help Command
+def help_command(update: Update, context: CallbackContext):
+    update.message.reply_text(
+        "ℹ️ Commands:\n"
+        "/start - Start Bot\n"
+        "/books - Get NCERT Books\n"
+        "/about - About Bot\n"
+        "/help - Help Menu"
+    )
 
-if action == "class":
-cls = rest[0]
-books = CATALOG.get(cls, {})
-if not books:
-await query.edit_message_text(f"No books found for {cls}. Update catalog.json and press Refresh.")
-return
-rows = []
-for title, url in books.items():
-rows.append([InlineKeyboardButton(title, callback_data=f"book|{url}|{title}")])
-rows.append([InlineKeyboardButton("🔙 Back", callback_data="back|root")])
-await query.edit_message_text(f"{cls}: Select a book to download.", reply_markup=InlineKeyboardMarkup(rows))
-return
+# ✅ About Command
+def about(update: Update, context: CallbackContext):
+    update.message.reply_text(
+        "🤖 *About This Bot:*\n\n"
+        "📚 This bot provides NCERT Books (Class 1–12).\n"
+        "💡 Created with ❤️ using Python.\n"
+        f"📢 Join our channel: @{CHANNEL_USERNAME}",
+        parse_mode="Markdown"
+    )
 
+# ✅ Button Handler
+def button(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    data = query.data
 
-if action == "book":
-url, title = rest
-await query.edit_message_text(f"Fetching: {title}\nIf it takes long, use direct link: {url}")
-await send_pdf(url, title, update, context)
-return
+    if data in ncert_books:
+        keyboard = [[InlineKeyboardButton(sub, url=link)] for sub, link in ncert_books[data].items()]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.edit_message_text(text=f"📖 {data} Books:", reply_markup=reply_markup)
 
+# ✅ Main Function
+def main():
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
 
-if action == "back":
-# Back to root list of classes
-classes = sorted(CATALOG.keys())
-rows = chunk_buttons([(c, f"class|{c}") for c in classes], row=2)
-rows.append([InlineKeyboardButton("🔄 Refresh", callback_data="refresh|root")])
-try:
-await query.edit_message_text("Choose your class:", reply_markup=InlineKeyboardMarkup(rows))
-except Exception:
-await
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("books", books))
+    dp.add_handler(CommandHandler("help", help_command))
+    dp.add_handler(CommandHandler("about", about))
+    dp.add_handler(CallbackQueryHandler(button))
+
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == "__main__":
+    main()
+    
